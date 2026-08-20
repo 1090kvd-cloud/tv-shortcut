@@ -1,0 +1,149 @@
+name: Build App Drawer APK
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Create Project Files Automatically
+      run: |
+        mkdir -p app/src/main/java/com/example/mydrawer
+        
+        cat << 'EOF' > settings.gradle
+        pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+        dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }
+        rootProject.name = "MyDrawer"
+        include ':app'
+        EOF
+        
+        cat << 'EOF' > build.gradle
+        plugins {
+            id 'com.android.application' version '8.1.1' apply false
+            id 'org.jetbrains.kotlin.android' version '1.9.0' apply false
+        }
+        EOF
+        
+        cat << 'EOF' > app/build.gradle
+        plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
+        android {
+            namespace 'com.example.mydrawer'
+            compileSdk 34
+            defaultConfig { applicationId "com.example.mydrawer"; minSdk 21; targetSdk 34; versionCode 1; versionName "1.0" }
+        }
+        EOF
+        
+        cat << 'EOF' > app/src/main/AndroidManifest.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <uses-feature android:name="android.software.leanback" android:required="true" />
+            <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+            <application android:allowBackup="true" android:label="Мои Приложения" android:theme="@android:style/Theme.NoTitleBar">
+                <activity android:name=".MainActivity" android:exported="true">
+                    <intent-filter>
+                        <action android:name="android.intent.action.MAIN" />
+                        <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+                    </intent-filter>
+                </activity>
+            </application>
+        </manifest>
+        EOF
+        
+        cat << 'EOF' > app/src/main/java/com/example/mydrawer/MainActivity.kt
+        package com.example.mydrawer
+        import android.app.Activity
+        import android.content.Intent
+        import android.graphics.Color
+        import android.os.Bundle
+        import android.view.Gravity
+        import android.view.View
+        import android.view.ViewGroup
+        import android.widget.*
+        
+        class MainActivity : Activity() {
+            override fun onCreate(savedInstanceState: Bundle?) {
+                super.onCreate(savedInstanceState)
+                
+                // Создаем темный фон
+                window.decorView.setBackgroundColor(Color.parseColor("#121212"))
+                
+                // Создаем сетку для иконок
+                val gridView = GridView(this).apply {
+                    numColumns = 5 // 5 колонок на экране ТВ
+                    verticalSpacing = 40
+                    horizontalSpacing = 20
+                    setPadding(50, 50, 50, 50)
+                }
+                setContentView(gridView)
+        
+                val pm = packageManager
+                val intent = Intent(Intent.ACTION_MAIN, null).addCategory(Intent.CATEGORY_LAUNCHER)
+                val apps = pm.queryIntentActivities(intent, 0)
+        
+                // Сортируем по алфавиту
+                apps.sortBy { it.loadLabel(pm).toString() }
+        
+                gridView.adapter = object : BaseAdapter() {
+                    override fun getCount() = apps.size
+                    override fun getItem(p0: Int) = apps[p0]
+                    override fun getItemId(p0: Int) = p0.toLong()
+                    override fun getView(pos: Int, conv: View?, parent: ViewGroup?): View {
+                        val app = apps[pos]
+                        
+                        val layout = LinearLayout(this@MainActivity).apply {
+                            orientation = LinearLayout.VERTICAL
+                            gravity = Gravity.CENTER
+                            setPadding(10, 10, 10, 10)
+                        }
+                        
+                        val icon = ImageView(this@MainActivity).apply {
+                            setImageDrawable(app.loadIcon(pm))
+                            layoutParams = LinearLayout.LayoutParams(180, 180)
+                        }
+                        
+                        val text = TextView(this@MainActivity).apply {
+                            text = app.loadLabel(pm)
+                            setTextColor(Color.WHITE)
+                            gravity = Gravity.CENTER
+                            setSingleLine(true)
+                            setPadding(0, 10, 0, 0)
+                        }
+                        
+                        layout.addView(icon)
+                        layout.addView(text)
+                        return layout
+                    }
+                }
+        
+                // Запуск при клике
+                gridView.setOnItemClickListener { _, _, pos, _ ->
+                    val app = apps[pos]
+                    val launchIntent = pm.getLaunchIntentForPackage(app.activityInfo.packageName)
+                    if (launchIntent != null) startActivity(launchIntent)
+                }
+            }
+        }
+        EOF
+
+    - name: Install and Setup Gradle
+      uses: gradle/actions/setup-gradle@v3
+      with:
+        gradle-version: '8.4'
+
+    - name: Build Debug APK
+      run: gradle assembleDebug
+
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: my-drawer-apk
+        path: app/build/outputs/apk/debug/app-debug.apk
